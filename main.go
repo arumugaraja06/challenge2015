@@ -6,17 +6,13 @@ import (
 	"./Utility"
 	"os"
 	"encoding/json"
-	"time"
 )
 
 var processData structs.ProcessData
-var num int
-var start, end time.Time
 
 func main() {
 	var ResultDatas []structs.ResultData
 	if len(os.Args) == 3 {
-		start = time.Now()
 		var person1Url, person2Url string
 		person1Url = os.Args[1]
 		person2Url = os.Args[2]
@@ -108,7 +104,6 @@ func FetchDataForPersons(person1Url, person2Url string) {
 func FetchDataFromMovieBuff(partUrl string) structs.MainData {
 	//fmt.Println("Going to fetch data from URL ", partUrl)
 	var movieData structs.MainData
-	num++
 	//Fetching Data from URL
 	var retData = make(chan []byte)
 	go utility.HttpGet(partUrl, retData)
@@ -135,9 +130,5 @@ func PrintResultData(ResultDatas []structs.ResultData) {
 			fmt.Printf("\n%s:\t%s", movieData.FirstRole, movieData.FirstName)
 			fmt.Printf("\n%s:\t%s\n", movieData.SecondRole, movieData.SecondName)
 		}
-		end = time.Now()
-		fmt.Println("\n\n\nTotal Requests --> ", num)
-		fmt.Println("Started At --> ", start)
-		fmt.Println("Ends At --> ", end, "\n\n")
 	}
 }
