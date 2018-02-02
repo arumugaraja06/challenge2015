@@ -5,10 +5,13 @@ import (
 	"./Structs"
 	"./Utility"
 	"os"
+	"sync"
+	"time"
 	"encoding/json"
 )
 
 var processData structs.ProcessData
+var wg sync.WaitGroup
 
 func main() {
 	var ResultDatas []structs.ResultData
@@ -38,7 +41,12 @@ func CalculateSeparation() []structs.ResultData {
 	var ResultData []structs.ResultData
 	for true {
 		for _, person := range processData.TotalPersons {
-			personDetails := FetchDataFromMovieBuff(person)
+			var personChan = make(chan structs.MainData)
+			wg.Add(1)
+			go FetchDataFromMovieBuff(person, personChan, &wg)
+			personDetails := <- personChan
+			wg.Wait()
+			go CloseChannel(personChan)
 
 			//Checing Matches
 			for _, personMovies := range personDetails.Movies {
@@ -53,37 +61,52 @@ func CalculateSeparation() []structs.ResultData {
 			}
 
 			//Processing Movies
+			var personMovieChan = make(chan structs.MainData)
 			for _, personMovies := range personDetails.Movies {
 				if processData.Visited[personMovies.URL] {
 					continue
 				}
 
 				processData.Visited[personMovies.URL] = true
-
-				personMovieDetails := FetchDataFromMovieBuff(personMovies.URL)
-
-				//Processing Casts
-				for _, movieCast := range personMovieDetails.Cast {
-					if processData.Visited[movieCast.URL] {
-						continue
-					}
-
-					processData.Visited[movieCast.URL] = true
-					processData.TotalPersons = append(processData.TotalPersons, movieCast.URL)
-					processData.Result[movieCast.URL] = structs.ResultData{personMovies.Name, personMovies.Role, personDetails.Name, movieCast.Role, movieCast.Name}
-				}
-
+				wg.Add(1)
+				go FetchDataFromMovieBuff(personMovies.URL, personMovieChan, &wg)
 			}
+			go func () {
+				for personMovieDetails := range personMovieChan {
+					
+					//Processing Casts
+					for _, movieCast := range personMovieDetails.Cast {
+						if processData.Visited[movieCast.URL] {
+							continue
+						}
+	
+						processData.Visited[movieCast.URL] = true
+						processData.TotalPersons = append(processData.TotalPersons, movieCast.URL)
+						processData.Result[movieCast.URL] = structs.ResultData{personMovieDetails.Name, personMovieDetails.Type, personDetails.Name, movieCast.Role, movieCast.Name}
+					}
+				}
+			}()
+			wg.Wait()
+			go CloseChannel(personMovieChan)
 		}
 	}
 	return ResultData
 }
 
 func FetchDataForPersons(person1Url, person2Url string) {
-	
-	person1Data := FetchDataFromMovieBuff(person1Url)
+	var person1Chan = make(chan structs.MainData)
+	wg.Add(1)
+	go FetchDataFromMovieBuff(person1Url, person1Chan, &wg)
+	person1Data := <- person1Chan
+	wg.Wait()
+	go CloseChannel(person1Chan)
 
-	person2Data := FetchDataFromMovieBuff(person2Url)
+	var person2Chan = make(chan structs.MainData)
+	wg.Add(1)
+	go FetchDataFromMovieBuff(person2Url, person2Chan, &wg)
+	person2Data := <- person2Chan
+	wg.Wait()
+	go CloseChannel(person2Chan)
 
 	if len(person1Data.Movies) > len(person2Data.Movies) {
 		processData.Initial, processData.Target = person2Url, person1Url
@@ -101,21 +124,22 @@ func FetchDataForPersons(person1Url, person2Url string) {
 	processData.Visited[processData.Initial] = true
 }
 
-func FetchDataFromMovieBuff(partUrl string) structs.MainData {
+func FetchDataFromMovieBuff(partUrl string, movieData chan structs.MainData, wg *sync.WaitGroup) {
 	//fmt.Println("Going to fetch data from URL ", partUrl)
-	var movieData structs.MainData
 	//Fetching Data from URL
-	var retData = make(chan []byte)
-	go utility.HttpGet(partUrl, retData)
-	byteData := <- retData
-	if retData != nil {
-		err := json.Unmarshal(byteData, &movieData)
+	//defer close(movieData)
+	defer wg.Done()
+	time.Sleep(1 * time.Millisecond)
+	var retData structs.MainData
+	byteData := utility.HttpGet(partUrl)
+	if byteData != nil {
+		err := json.Unmarshal(byteData, &retData)
 		if err != nil {
 			//fmt.Println("Error in unmarshaling. Error is %s", err)
 		}
-		return movieData
+		movieData <- retData
 	} else {
-		return movieData
+		movieData <- retData
 	}
 }
 
@@ -131,4 +155,8 @@ func PrintResultData(ResultDatas []structs.ResultData) {
 			fmt.Printf("\n%s:\t%s\n", movieData.SecondRole, movieData.SecondName)
 		}
 	}
+}
+
+func CloseChannel(closeChan chan structs.MainData) {
+	close(closeChan)
 }
